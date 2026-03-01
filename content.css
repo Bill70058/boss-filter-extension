@@ -1,0 +1,187 @@
+/* ===== AI筛选助手 v1.4 - 修复tooltip层叠问题 ===== */
+
+/* 徽章：移除z-index避免创建层叠上下文（这是tooltip被遮挡的根因） */
+.ai-filter-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 600;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', sans-serif;
+  vertical-align: middle;
+  margin-left: 6px;
+  cursor: default;
+  position: relative;       /* 保留，tooltip需要它定位 */
+  /* z-index: 100 → 删掉！这会创建层叠上下文把tooltip困在里面 */
+  box-shadow: 0 1px 4px rgba(0,0,0,0.15);
+  line-height: 1.4;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* 悬停时提升整张卡片的层级，让tooltip高于所有其他卡片 */
+li.card-item:has(.ai-filter-badge:hover),
+li.geek-info-card:has(.ai-filter-badge:hover) {
+  position: relative !important;
+  z-index: 9999 !important;
+}
+
+/* JS 兜底：避免 :has 或复杂嵌套导致层级提升失效 */
+li.card-item.ai-hovering,
+li.geek-info-card.ai-hovering {
+  position: relative !important;
+  z-index: 9999 !important;
+}
+
+/* 搜索页有多层容器可能裁剪 tooltip，放开可视区域 */
+li.geek-info-card,
+li.geek-info-card > a,
+li.geek-info-card .card-container,
+li.geek-info-card .card-inner,
+li.geek-info-card .search-geek-info,
+li.geek-info-card .geek-info-detail,
+li.geek-info-card .geek-info-basic,
+li.geek-info-card .geek-info-basic-content {
+  overflow: visible !important;
+}
+
+/* 加载态 */
+.ai-filter-badge[data-state="loading"] {
+  background: #f0f2f5;
+  color: #999;
+}
+
+/* 强推 - 绿 */
+.ai-filter-badge[data-state="high"] {
+  background: linear-gradient(135deg, #52c41a, #389e0d);
+  color: #fff;
+}
+
+/* 可考虑 - 蓝 */
+.ai-filter-badge[data-state="mid"] {
+  background: linear-gradient(135deg, #1677ff, #0958d9);
+  color: #fff;
+}
+
+/* 不推荐 - 红 */
+.ai-filter-badge[data-state="low"] {
+  background: linear-gradient(135deg, #ff7875, #f5222d);
+  color: #fff;
+}
+
+/* 错误 */
+.ai-filter-badge[data-state="error"] {
+  background: #fff1f0;
+  color: #f5222d;
+  border: 1px solid #ffccc7;
+}
+
+.badge-score {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.5px;
+}
+
+.badge-label {
+  font-size: 10px;
+  font-weight: 500;
+  opacity: 0.92;
+}
+
+/* 加载动画 */
+.badge-spinner {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border: 2px solid #ccc;
+  border-top-color: #888;
+  border-radius: 50%;
+  animation: ai-spin 0.7s linear infinite;
+}
+@keyframes ai-spin { to { transform: rotate(360deg); } }
+
+/* 悬浮详情气泡 */
+.ai-filter-tooltip {
+  display: none;
+  position: absolute;
+  left: 0;
+  top: calc(100% + 6px);
+  width: 280px;
+  background: #fff;
+  border: 1px solid #e8eaed;
+  border-radius: 10px;
+  padding: 12px 14px;
+  box-shadow: 0 8px 28px rgba(0,0,0,0.16);
+  font-size: 12px;
+  line-height: 1.65;
+  color: #333;
+  z-index: 99999;
+  font-weight: 400;
+  pointer-events: none;
+  white-space: normal;
+}
+
+/* 气泡三角 */
+.ai-filter-tooltip::before {
+  content: '';
+  position: absolute;
+  top: -6px;
+  left: 16px;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-bottom: 6px solid #e8eaed;
+}
+.ai-filter-tooltip::after {
+  content: '';
+  position: absolute;
+  top: -5px;
+  left: 17px;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-bottom: 5px solid #fff;
+}
+
+.ai-filter-badge:hover .ai-filter-tooltip {
+  display: block;
+}
+
+.tip-score {
+  font-size: 13px;
+  margin-bottom: 7px;
+  color: #1a1a1a;
+  border-bottom: 1px solid #f0f0f0;
+  padding-bottom: 7px;
+}
+.tip-score strong {
+  color: #1677ff;
+  font-size: 17px;
+}
+
+.tip-reason {
+  color: #389e0d;
+  margin-bottom: 5px;
+}
+
+.tip-risk {
+  color: #d46b08;
+}
+
+/* 卡片高亮：绿框 */
+.ai-highlight {
+  outline: 2px solid #52c41a !important;
+  outline-offset: 3px;
+  border-radius: 8px;
+}
+
+/* 折叠低分 */
+.ai-dimmed {
+  opacity: 0.3 !important;
+  filter: grayscale(40%);
+  transition: opacity 0.25s, filter 0.25s;
+}
+.ai-dimmed:hover {
+  opacity: 0.85 !important;
+  filter: none;
+}

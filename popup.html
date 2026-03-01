@@ -1,0 +1,429 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>AI候选人筛选助手</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      width: 380px;
+      font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+      font-size: 13px;
+      background: #f7f8fa;
+      color: #1a1a1a;
+    }
+
+    .header {
+      background: linear-gradient(135deg, #2d6ef7, #1a4fd4);
+      color: white;
+      padding: 14px 16px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .header .logo { font-size: 20px; }
+    .header h1 { font-size: 15px; font-weight: 600; }
+    .header p { font-size: 11px; opacity: 0.8; margin-top: 2px; }
+
+    .tabs {
+      display: flex;
+      background: #fff;
+      border-bottom: 1px solid #e8eaed;
+    }
+    .tab {
+      flex: 1;
+      padding: 10px;
+      text-align: center;
+      cursor: pointer;
+      font-size: 12px;
+      color: #666;
+      border-bottom: 2px solid transparent;
+      transition: all 0.2s;
+    }
+    .tab.active {
+      color: #2d6ef7;
+      border-bottom-color: #2d6ef7;
+      font-weight: 500;
+    }
+
+    .tab-content { display: none; padding: 14px 16px; }
+    .tab-content.active { display: block; }
+
+    .section { margin-bottom: 14px; }
+    .label {
+      font-size: 12px;
+      font-weight: 500;
+      color: #444;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .label .tip {
+      font-size: 11px;
+      font-weight: 400;
+      color: #999;
+    }
+
+    input[type="text"], input[type="password"], textarea, select {
+      width: 100%;
+      border: 1px solid #dde1e7;
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 12px;
+      font-family: inherit;
+      color: #1a1a1a;
+      background: #fff;
+      transition: border-color 0.2s;
+      outline: none;
+    }
+    input:focus, textarea:focus, select:focus {
+      border-color: #2d6ef7;
+      box-shadow: 0 0 0 2px rgba(45,110,247,0.1);
+    }
+    textarea { resize: vertical; min-height: 80px; line-height: 1.5; }
+
+    .api-row {
+      display: flex;
+      gap: 6px;
+    }
+    .api-row input { flex: 1; }
+    .btn-sm {
+      padding: 8px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      cursor: pointer;
+      border: none;
+      white-space: nowrap;
+      font-family: inherit;
+    }
+    .btn-secondary {
+      background: #f0f0f0;
+      color: #444;
+    }
+    .btn-secondary:hover { background: #e4e4e4; }
+
+    /* 权重配置 */
+    .weight-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 10px;
+      background: #fff;
+      border: 1px solid #e8eaed;
+      border-radius: 8px;
+      padding: 8px 10px;
+    }
+    .weight-item .dim-name {
+      font-size: 12px;
+      color: #333;
+      width: 80px;
+      flex-shrink: 0;
+    }
+    .weight-item input[type="range"] {
+      flex: 1;
+      height: 4px;
+      border: none;
+      padding: 0;
+      accent-color: #2d6ef7;
+      cursor: pointer;
+    }
+    .weight-item .weight-val {
+      font-size: 12px;
+      font-weight: 600;
+      color: #2d6ef7;
+      width: 30px;
+      text-align: right;
+      flex-shrink: 0;
+    }
+    .weight-total {
+      text-align: right;
+      font-size: 11px;
+      color: #999;
+      margin-top: -4px;
+      margin-bottom: 10px;
+    }
+    .weight-total.over { color: #e53e3e; }
+    .weight-total.ok { color: #38a169; }
+
+    /* 模板快捷选择 */
+    .template-tags {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+    .tag {
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 11px;
+      background: #eef2ff;
+      color: #2d6ef7;
+      cursor: pointer;
+      border: 1px solid #c7d7fd;
+      transition: all 0.15s;
+    }
+    .tag:hover { background: #2d6ef7; color: white; }
+
+    /* 筛选门槛 */
+    .threshold-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .threshold-row label { font-size: 12px; color: #555; white-space: nowrap; }
+    .threshold-row input[type="number"] {
+      width: 60px;
+      text-align: center;
+    }
+    .threshold-row span { font-size: 12px; color: #999; }
+
+    /* 主操作按钮 */
+    .action-area {
+      padding: 12px 16px;
+      background: #fff;
+      border-top: 1px solid #e8eaed;
+    }
+    .btn-primary {
+      width: 100%;
+      padding: 11px;
+      background: linear-gradient(135deg, #2d6ef7, #1a4fd4);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: inherit;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: opacity 0.2s;
+    }
+    .btn-primary:hover { opacity: 0.9; }
+    .btn-primary:disabled { opacity: 0.5; cursor: not-allowed; }
+    .btn-primary .spinner {
+      width: 14px; height: 14px;
+      border: 2px solid rgba(255,255,255,0.4);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* 状态栏 */
+    .status-bar {
+      margin-top: 8px;
+      font-size: 11px;
+      text-align: center;
+      color: #999;
+      min-height: 16px;
+    }
+    .status-bar.error { color: #e53e3e; }
+    .status-bar.success { color: #38a169; }
+    .status-bar.info { color: #2d6ef7; }
+
+    /* 结果统计 */
+    .result-stats {
+      display: flex;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .stat-card {
+      flex: 1;
+      background: #fff;
+      border: 1px solid #e8eaed;
+      border-radius: 8px;
+      padding: 8px;
+      text-align: center;
+    }
+    .stat-card .num {
+      font-size: 22px;
+      font-weight: 700;
+      color: #2d6ef7;
+    }
+    .stat-card .num.green { color: #38a169; }
+    .stat-card .num.orange { color: #dd6b20; }
+    .stat-card .desc { font-size: 11px; color: #999; margin-top: 2px; }
+
+    .divider {
+      border: none;
+      border-top: 1px solid #e8eaed;
+      margin: 12px 0;
+    }
+
+    /* 历史记录 */
+    .history-item {
+      background: #fff;
+      border: 1px solid #e8eaed;
+      border-radius: 6px;
+      padding: 8px 10px;
+      margin-bottom: 6px;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .history-item:hover { border-color: #2d6ef7; }
+    .history-item .hist-job { font-weight: 500; font-size: 12px; }
+    .history-item .hist-desc { font-size: 11px; color: #999; margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+    .empty-hint {
+      text-align: center;
+      color: #bbb;
+      font-size: 12px;
+      padding: 20px 0;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="logo">🎯</div>
+    <div>
+      <h1>AI候选人筛选助手</h1>
+      <p>DeepSeek · BOSS直聘专属</p>
+    </div>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" data-tab="filter">筛选</div>
+    <div class="tab" data-tab="weights">权重配置</div>
+    <div class="tab" data-tab="settings">设置</div>
+  </div>
+
+  <!-- 筛选 Tab -->
+  <div class="tab-content active" id="tab-filter">
+    <div class="section">
+      <div class="label">岗位名称</div>
+      <input type="text" id="job-title" placeholder="例：Java后端工程师、产品经理、销售总监" />
+    </div>
+
+    <div class="section">
+      <div class="label">
+        岗位需求描述
+        <span class="tip">（越详细匹配越准确）</span>
+      </div>
+      <div class="template-tags" id="template-tags">
+        <span class="tag" data-tpl="tech">技术岗</span>
+        <span class="tag" data-tpl="product">产品岗</span>
+        <span class="tag" data-tpl="sales">销售岗</span>
+        <span class="tag" data-tpl="operate">运营岗</span>
+        <span class="tag" data-tpl="design">设计岗</span>
+        <span class="tag" data-tpl="hr">人力岗</span>
+      </div>
+      <textarea id="job-desc" placeholder="请描述岗位职责、任职要求、加分项等...&#10;例：负责后端系统开发，要求3年以上Java经验，熟悉Spring Boot/微服务架构，有高并发系统经验优先"></textarea>
+    </div>
+
+    <div class="section">
+      <div class="label">筛选门槛 <span class="tip">（低于此分将被折叠/标红）</span></div>
+      <div class="threshold-row">
+        <label>最低匹配分</label>
+        <input type="number" id="threshold" min="0" max="100" value="60" />
+        <span>分（满分100）</span>
+      </div>
+    </div>
+
+    <hr class="divider">
+
+    <div class="section">
+      <div class="label">历史岗位 <span class="tip">（点击快速填入）</span></div>
+      <div id="history-list"><div class="empty-hint">暂无历史记录</div></div>
+    </div>
+  </div>
+
+  <!-- 权重配置 Tab -->
+  <div class="tab-content" id="tab-weights">
+    <div class="label" style="margin-bottom:10px">
+      拖动滑块调整各维度评分权重
+      <span class="tip">（总和应等于100）</span>
+    </div>
+    <div id="weight-total" class="weight-total">总计：<span id="total-val">100</span> / 100</div>
+    <div id="weight-list">
+      <!-- 动态生成 -->
+    </div>
+    <button class="btn-sm btn-secondary" id="btn-reset-weights" style="width:100%;margin-top:4px">恢复默认权重</button>
+    <hr class="divider">
+    <div class="section">
+      <div class="label">自定义评分维度 <span class="tip">（可增删）</span></div>
+      <div id="custom-dims"></div>
+      <div style="display:flex;gap:6px;margin-top:8px">
+        <input type="text" id="new-dim-name" placeholder="维度名称，例：行业背景" style="flex:1" />
+        <button class="btn-sm btn-secondary" id="btn-add-dim">+ 添加</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 设置 Tab -->
+  <div class="tab-content" id="tab-settings">
+    <div class="section">
+      <div class="label">DeepSeek API Key</div>
+      <div class="api-row">
+        <input type="password" id="api-key" placeholder="sk-xxxxxxxxxxxxxxxx" />
+        <button class="btn-sm btn-secondary" id="btn-toggle-key">显示</button>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="label">AI 模型</div>
+      <select id="model-select">
+        <option value="deepseek-chat">deepseek-chat（推荐，速度快）</option>
+        <option value="deepseek-reasoner">deepseek-reasoner（慢，推理强）</option>
+      </select>
+    </div>
+
+    <div class="section">
+      <div class="label">并发请求数 <span class="tip">（同时处理的候选人数）</span></div>
+      <select id="concurrency">
+        <option value="2">2（保守）</option>
+        <option value="4" selected>4（推荐）</option>
+        <option value="6">6（较快）</option>
+      </select>
+    </div>
+
+    <div class="section">
+      <div class="label">结果展示方式</div>
+      <select id="display-mode">
+        <option value="badge">仅显示评分徽章</option>
+        <option value="highlight" selected>高亮优质候选人 + 评分徽章</option>
+        <option value="collapse">折叠低分候选人 + 评分徽章</option>
+      </select>
+    </div>
+
+    <div class="section">
+      <div class="label">历史记录保存数量</div>
+      <select id="history-max">
+        <option value="5">最近5条</option>
+        <option value="10" selected>最近10条</option>
+        <option value="20">最近20条</option>
+      </select>
+    </div>
+
+    <button class="btn-sm btn-secondary" id="btn-save-settings" style="width:100%;padding:10px;margin-top:4px">保存设置</button>
+  </div>
+
+  <!-- 底部操作区 -->
+  <div class="action-area">
+    <button class="btn-primary" id="btn-start">
+      <span id="btn-icon">🚀</span>
+      <span id="btn-text">开始AI筛选</span>
+    </button>
+    <div class="status-bar" id="status-bar"></div>
+    <div class="result-stats" id="result-stats" style="display:none">
+      <div class="stat-card">
+        <div class="num" id="stat-total">0</div>
+        <div class="desc">检测人数</div>
+      </div>
+      <div class="stat-card">
+        <div class="num green" id="stat-pass">0</div>
+        <div class="desc">推荐人数</div>
+      </div>
+      <div class="stat-card">
+        <div class="num orange" id="stat-fail">0</div>
+        <div class="desc">不推荐</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

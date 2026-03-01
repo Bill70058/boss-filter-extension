@@ -312,6 +312,29 @@ async function autoScrollAndLoadMore(prevCount) {
 // ===================== 徽章注入 =====================
 let badgeMap = new Map();
 
+function adjustTooltipPlacement(badge) {
+  const tooltip = badge.querySelector('.ai-filter-tooltip');
+  if (!tooltip) return;
+
+  tooltip.classList.remove('ai-tooltip-up');
+
+  const prevDisplay = tooltip.style.display;
+  const prevVisibility = tooltip.style.visibility;
+  tooltip.style.visibility = 'hidden';
+  tooltip.style.display = 'block';
+
+  const tipRect = tooltip.getBoundingClientRect();
+  const badgeRect = badge.getBoundingClientRect();
+  const spaceBelow = window.innerHeight - badgeRect.bottom;
+
+  if (tipRect.height + 12 > spaceBelow) {
+    tooltip.classList.add('ai-tooltip-up');
+  }
+
+  tooltip.style.display = prevDisplay;
+  tooltip.style.visibility = prevVisibility;
+}
+
 function injectBadge(card) {
   card.querySelector('.ai-filter-badge')?.remove();
   const badge = document.createElement('span');
@@ -320,7 +343,10 @@ function injectBadge(card) {
   badge.innerHTML = '<span class="badge-spinner"></span><span class="badge-label">分析中</span>';
 
   // 不依赖 :has，直接在 hover 时提升当前卡片层级，兼容复杂层叠场景
-  badge.addEventListener('mouseenter', () => card.classList.add('ai-hovering'));
+  badge.addEventListener('mouseenter', () => {
+    card.classList.add('ai-hovering');
+    adjustTooltipPlacement(badge);
+  });
   badge.addEventListener('mouseleave', () => card.classList.remove('ai-hovering'));
 
   // 插在名字后面
@@ -551,6 +577,49 @@ async function startFilter(payload) {
   }
 }
 
+function initFloatingPanel() {
+  if (window.top !== window.self) return;
+  if (document.getElementById('ai-filter-fab')) return;
+
+  const fab = document.createElement('button');
+  fab.id = 'ai-filter-fab';
+  fab.type = 'button';
+  fab.title = '打开AI筛选助手';
+  fab.textContent = '🎯';
+
+  const panel = document.createElement('div');
+  panel.id = 'ai-filter-panel';
+  panel.innerHTML = `
+    <div class="ai-panel-head">
+      <span class="ai-panel-title">AI筛选助手</span>
+      <button type="button" class="ai-panel-close" aria-label="关闭">×</button>
+    </div>
+    <iframe class="ai-panel-frame" src="${chrome.runtime.getURL('popup.html')}"></iframe>
+  `;
+
+  const closeBtn = panel.querySelector('.ai-panel-close');
+
+  const openPanel = () => {
+    panel.classList.add('ai-open');
+    fab.classList.add('ai-open');
+  };
+  const closePanel = () => {
+    panel.classList.remove('ai-open');
+    fab.classList.remove('ai-open');
+  };
+
+  fab.addEventListener('click', openPanel);
+  closeBtn?.addEventListener('click', closePanel);
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && panel.classList.contains('ai-open')) {
+      closePanel();
+    }
+  });
+
+  document.documentElement.appendChild(fab);
+  document.documentElement.appendChild(panel);
+}
+
 // ===================== 消息监听 =====================
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   if (msg.type === 'START_FILTER') {
@@ -567,3 +636,5 @@ log('v1.5 已加载，路径:', location.pathname);
 log(
   `frame加载: ${location.href.slice(0, 80)}, 推荐卡片: ${document.querySelectorAll('li.card-item').length}, 搜索卡片: ${document.querySelectorAll('li.geek-info-card').length}`
 );
+
+initFloatingPanel();

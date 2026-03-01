@@ -23,6 +23,12 @@
   "background": {
     "service_worker": "background.js"
   },
+  "web_accessible_resources": [
+    {
+      "resources": ["popup.html", "popup.js", "icons/*"],
+      "matches": ["https://www.zhipin.com/*"]
+    }
+  ],
   "content_scripts": [
     {
       "matches": ["https://www.zhipin.com/*"],

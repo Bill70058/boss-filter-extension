@@ -51,6 +51,33 @@ function setStorage(obj) {
   return new Promise(resolve => chrome.storage.local.set(obj, resolve));
 }
 
+function updateScrollTip() {
+  const tip = $('scroll-tip');
+  if (!tip) return;
+
+  const scroller = document.scrollingElement || document.documentElement;
+  const canScroll = scroller.scrollHeight - scroller.clientHeight > 12;
+  const distanceToBottom = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
+  tip.style.display = (canScroll && distanceToBottom > 16) ? 'flex' : 'none';
+}
+
+function setupScrollTip() {
+  let ticking = false;
+  const onChange = () => {
+    if (ticking) return;
+    ticking = true;
+    requestAnimationFrame(() => {
+      ticking = false;
+      updateScrollTip();
+    });
+  };
+
+  window.addEventListener('scroll', onChange, { passive: true });
+  window.addEventListener('resize', onChange);
+  setTimeout(updateScrollTip, 0);
+  setTimeout(updateScrollTip, 120);
+}
+
 // ===================== 权重管理 =====================
 let currentWeights = [...DEFAULT_WEIGHTS];
 
@@ -94,6 +121,7 @@ async function loadHistory() {
   const container = $('history-list');
   if (history.length === 0) {
     container.innerHTML = '<div class="empty-hint">暂无历史记录</div>';
+    setTimeout(updateScrollTip, 0);
     return;
   }
   container.innerHTML = '';
@@ -111,6 +139,7 @@ async function loadHistory() {
     });
     container.appendChild(div);
   });
+  setTimeout(updateScrollTip, 0);
 }
 
 async function saveToHistory(title, desc) {
@@ -142,6 +171,7 @@ async function init() {
   }
   renderWeights();
   loadHistory();
+  setupScrollTip();
 
   // 监听来自 content.js 的结果消息
   chrome.runtime.onMessage.addListener(handleMessage);
@@ -151,6 +181,7 @@ function handleMessage(msg) {
   if (msg.type === 'FILTER_PROGRESS') {
     setStatus(`正在分析 ${msg.done}/${msg.total} ...`, 'info');
     $('stat-total').textContent = msg.total;
+    setTimeout(updateScrollTip, 0);
   }
   if (msg.type === 'FILTER_DONE') {
     const { pass, fail, total, skipped = 0 } = msg;
@@ -160,10 +191,12 @@ function handleMessage(msg) {
     $('stat-fail').textContent = fail;
     $('result-stats').style.display = 'flex';
     setBtnState(false);
+    setTimeout(updateScrollTip, 0);
   }
   if (msg.type === 'FILTER_ERROR') {
     setStatus('❌ ' + msg.error, 'error');
     setBtnState(false);
+    setTimeout(updateScrollTip, 0);
   }
 }
 
@@ -176,6 +209,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
     this.classList.add('active');
     $('tab-' + this.dataset.tab).classList.add('active');
+    setTimeout(updateScrollTip, 0);
   });
 });
 

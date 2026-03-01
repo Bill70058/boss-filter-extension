@@ -35,15 +35,15 @@ li.geek-info-card.ai-hovering {
   z-index: 9999 !important;
 }
 
-/* 搜索页有多层容器可能裁剪 tooltip，放开可视区域 */
-li.geek-info-card,
-li.geek-info-card > a,
-li.geek-info-card .card-container,
-li.geek-info-card .card-inner,
-li.geek-info-card .search-geek-info,
-li.geek-info-card .geek-info-detail,
-li.geek-info-card .geek-info-basic,
-li.geek-info-card .geek-info-basic-content {
+/* 搜索页有多层容器可能裁剪 tooltip，仅在悬浮时放开可视区域 */
+li.geek-info-card.ai-hovering,
+li.geek-info-card.ai-hovering > a,
+li.geek-info-card.ai-hovering .card-container,
+li.geek-info-card.ai-hovering .card-inner,
+li.geek-info-card.ai-hovering .search-geek-info,
+li.geek-info-card.ai-hovering .geek-info-detail,
+li.geek-info-card.ai-hovering .geek-info-basic,
+li.geek-info-card.ai-hovering .geek-info-basic-content {
   overflow: visible !important;
 }
 
@@ -123,6 +123,12 @@ li.geek-info-card .geek-info-basic-content {
   white-space: normal;
 }
 
+/* 视口底部空间不足时，改为向上展开 */
+.ai-filter-tooltip.ai-tooltip-up {
+  top: auto;
+  bottom: calc(100% + 6px);
+}
+
 /* 气泡三角 */
 .ai-filter-tooltip::before {
   content: '';
@@ -141,6 +147,18 @@ li.geek-info-card .geek-info-basic-content {
   border-left: 5px solid transparent;
   border-right: 5px solid transparent;
   border-bottom: 5px solid #fff;
+}
+.ai-filter-tooltip.ai-tooltip-up::before {
+  top: auto;
+  bottom: -6px;
+  border-bottom: 0;
+  border-top: 6px solid #e8eaed;
+}
+.ai-filter-tooltip.ai-tooltip-up::after {
+  top: auto;
+  bottom: -5px;
+  border-bottom: 0;
+  border-top: 5px solid #fff;
 }
 
 .ai-filter-badge:hover .ai-filter-tooltip {
@@ -184,4 +202,85 @@ li.geek-info-card .geek-info-basic-content {
 .ai-dimmed:hover {
   opacity: 0.85 !important;
   filter: none;
+}
+
+/* ===================== 页面右侧悬浮入口 ===================== */
+#ai-filter-fab {
+  position: fixed;
+  right: 20px;
+  bottom: 120px;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  border: none;
+  background: linear-gradient(135deg, #2d6ef7, #1a4fd4);
+  color: #fff;
+  font-size: 26px;
+  box-shadow: 0 10px 24px rgba(45, 110, 247, 0.35);
+  cursor: pointer;
+  z-index: 2147483000;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, opacity 0.18s ease;
+}
+#ai-filter-fab:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 28px rgba(45, 110, 247, 0.4);
+}
+#ai-filter-fab.ai-open {
+  opacity: 0;
+  pointer-events: none;
+}
+
+#ai-filter-panel {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 408px;
+  height: calc(100vh - 40px);
+  background: #fff;
+  border: 1px solid #dfe3ea;
+  border-radius: 14px;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.2);
+  z-index: 2147483001;
+  overflow: hidden;
+  transform: translateX(110%);
+  opacity: 0;
+  transition: transform 0.22s ease, opacity 0.22s ease;
+}
+#ai-filter-panel.ai-open {
+  transform: translateX(0);
+  opacity: 1;
+}
+#ai-filter-panel .ai-panel-head {
+  height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px 0 14px;
+  border-bottom: 1px solid #e8eaed;
+  background: #f8f9fb;
+  font-size: 13px;
+  color: #2b2f36;
+}
+#ai-filter-panel .ai-panel-title {
+  font-weight: 600;
+}
+#ai-filter-panel .ai-panel-close {
+  width: 28px;
+  height: 28px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #6b7280;
+  font-size: 18px;
+  line-height: 28px;
+  cursor: pointer;
+}
+#ai-filter-panel .ai-panel-close:hover {
+  background: #eceff4;
+}
+#ai-filter-panel .ai-panel-frame {
+  width: 100%;
+  height: calc(100% - 44px);
+  border: 0;
+  background: #fff;
 }

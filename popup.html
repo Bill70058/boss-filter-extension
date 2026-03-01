@@ -47,6 +47,22 @@
       font-weight: 500;
     }
 
+    .scroll-tip {
+      position: sticky;
+      top: 0;
+      z-index: 20;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 6px 10px;
+      font-size: 11px;
+      color: #2d6ef7;
+      background: rgba(237, 243, 255, 0.95);
+      border-bottom: 1px solid #d7e3ff;
+      backdrop-filter: blur(3px);
+    }
+
     .tab-content { display: none; padding: 14px 16px; }
     .tab-content.active { display: block; }
 
@@ -290,6 +306,7 @@
     <div class="tab" data-tab="weights">权重配置</div>
     <div class="tab" data-tab="settings">设置</div>
   </div>
+  <div class="scroll-tip" id="scroll-tip">👇 向下滚动可查看更多内容</div>
 
   <!-- 筛选 Tab -->
   <div class="tab-content active" id="tab-filter">

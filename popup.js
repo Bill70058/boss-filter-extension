@@ -126,13 +126,14 @@ async function saveToHistory(title, desc) {
 async function init() {
   const data = await getStorage([
     'apiKey', 'model', 'concurrency', 'displayMode',
-    'historyMax', 'weights', 'threshold'
+    'historyMax', 'weights', 'threshold', 'autoScrollTimes'
   ]);
 
   if (data.apiKey) $('api-key').value = data.apiKey;
   if (data.model) $('model-select').value = data.model;
   if (data.concurrency) $('concurrency').value = data.concurrency;
   if (data.displayMode) $('display-mode').value = data.displayMode;
+  if (data.autoScrollTimes !== undefined) $('auto-scroll-times').value = String(data.autoScrollTimes);
   if (data.historyMax) $('history-max').value = data.historyMax;
   if (data.threshold !== undefined) $('threshold').value = data.threshold;
 
@@ -205,6 +206,7 @@ $('btn-save-settings').addEventListener('click', async () => {
     apiKey: $('api-key').value.trim(),
     model: $('model-select').value,
     concurrency: parseInt($('concurrency').value),
+    autoScrollTimes: parseInt($('auto-scroll-times').value),
     displayMode: $('display-mode').value,
     historyMax: parseInt($('history-max').value),
     weights: currentWeights,
@@ -255,8 +257,15 @@ $('btn-start').addEventListener('click', async () => {
     return;
   }
 
-  const { apiKey, model = 'deepseek-chat', concurrency = 4, displayMode = 'highlight', weights } = await getStorage([
-    'apiKey', 'model', 'concurrency', 'displayMode', 'weights'
+  const {
+    apiKey,
+    model = 'deepseek-chat',
+    concurrency = 4,
+    autoScrollTimes = 0,
+    displayMode = 'highlight',
+    weights
+  } = await getStorage([
+    'apiKey', 'model', 'concurrency', 'autoScrollTimes', 'displayMode', 'weights'
   ]);
 
   if (!apiKey) {
@@ -285,6 +294,7 @@ $('btn-start').addEventListener('click', async () => {
       apiKey,
       model,
       concurrency,
+      autoScrollTimes,
       displayMode,
       threshold,
       weights: currentWeights

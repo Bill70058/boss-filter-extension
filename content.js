@@ -224,6 +224,91 @@ function waitForCards(timeoutMs = 15000) {
   });
 }
 
+function sleep(ms) {
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
+function getCardUniqueKey(card) {
+  const link = card.querySelector('a[data-lid], a[data-expect], a[data-jid]');
+  const byAttr = link?.getAttribute('data-lid')
+    || link?.getAttribute('data-expect')
+    || link?.getAttribute('data-jid')
+    || card.querySelector('.card-inner')?.getAttribute('data-geekid');
+  return byAttr || card.innerText.trim().slice(0, 120);
+}
+
+function getScrollContainer(card) {
+  let el = card;
+  while (el && el !== document.body) {
+    const style = window.getComputedStyle(el);
+    const overflowY = style.overflowY;
+    if ((overflowY === 'auto' || overflowY === 'scroll') && el.scrollHeight > el.clientHeight + 20) {
+      return el;
+    }
+    el = el.parentElement;
+  }
+  return document.scrollingElement || document.documentElement;
+}
+
+function scrollToBottom(container) {
+  if (container === document.body || container === document.documentElement || container === document.scrollingElement) {
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+  } else {
+    container.scrollTo({ top: container.scrollHeight, behavior: 'smooth' });
+  }
+}
+
+function waitForMoreCards(prevCount, timeoutMs = 8000) {
+  return new Promise((resolve, reject) => {
+    let resolved = false;
+    const deadline = Date.now() + timeoutMs;
+
+    const done = () => {
+      if (resolved) return;
+      resolved = true;
+      observer.disconnect();
+      clearInterval(timer);
+      resolve(true);
+    };
+    const fail = () => {
+      if (resolved) return;
+      resolved = true;
+      observer.disconnect();
+      clearInterval(timer);
+      reject(new Error('未检测到新候选人卡片'));
+    };
+    const check = () => {
+      const now = findCandidateCards().length;
+      if (now > prevCount) done();
+      else if (Date.now() > deadline) fail();
+    };
+
+    const observer = new MutationObserver(check);
+    observer.observe(document.body, { childList: true, subtree: true });
+    const timer = setInterval(check, 400);
+    check();
+  });
+}
+
+async function autoScrollAndLoadMore(prevCount) {
+  const sampleCard = findCandidateCards()[0];
+  const container = sampleCard ? getScrollContainer(sampleCard) : (document.scrollingElement || document.documentElement);
+
+  // 连续推到底，兼容部分页面的懒加载阈值触发
+  for (let i = 0; i < 3; i++) {
+    scrollToBottom(container);
+    await sleep(500);
+    if (findCandidateCards().length > prevCount) return true;
+  }
+
+  try {
+    await waitForMoreCards(prevCount, 8000);
+    return true;
+  } catch {
+    return findCandidateCards().length > prevCount;
+  }
+}
+
 // ===================== 徽章注入 =====================
 let badgeMap = new Map();
 
@@ -349,49 +434,89 @@ async function startFilter(payload) {
   try {
     clearAllBadges();
 
-    let cards;
     try {
-      cards = await waitForCards(15000);
+      await waitForCards(15000);
     } catch (e) {
       chrome.runtime.sendMessage({ type: 'FILTER_ERROR', error: e.message });
       return;
     }
 
-    log(`开始分析 ${cards.length} 位候选人`);
-    const { apiKey, model, concurrency, displayMode, threshold, weights, jobTitle, jobDesc } = payload;
-    const total = cards.length;
+    const {
+      apiKey, model, concurrency, displayMode, threshold, weights, jobTitle, jobDesc, autoScrollTimes = 0
+    } = payload;
+    const scrollRounds = Math.max(0, parseInt(autoScrollTimes, 10) || 0);
     let done = 0;
+    let pass = 0;
+    let fail = 0;
+    let total = findCandidateCards().length;
+    const processed = new Set();
 
     chrome.runtime.sendMessage({ type: 'FILTER_PROGRESS', done: 0, total });
-    cards.forEach(card => injectBadge(card));
+    log(`开始自动筛选，自动滚动次数: ${scrollRounds}`);
 
-    const tasks = cards.map((card, i) => async () => {
-      const info = parseCard(card);
-      log(`[${i + 1}/${total}] ${info.name} | ${info.experience} | ${info.education}`);
+    for (let round = 0; round <= scrollRounds; round++) {
+      const allCards = findCandidateCards();
+      const newCards = [];
 
-      try {
-        const result = await callDeepSeek({ apiKey, model, jobTitle, jobDesc, candidateInfo: info, weights });
-        updateBadge(card, result, displayMode, threshold);
-        done++;
-        chrome.runtime.sendMessage({ type: 'FILTER_PROGRESS', done, total });
-        return { ok: true, score: result.score };
-      } catch (err) {
-        log(`[${i + 1}] 失败:`, err.message);
-        const badge = badgeMap.get(card);
-        if (badge) {
-          badge.dataset.state = 'error';
-          badge.innerHTML = `<span class="badge-label" title="${err.message}">⚠️ 失败</span>`;
+      allCards.forEach(card => {
+        const key = getCardUniqueKey(card);
+        if (!processed.has(key)) {
+          processed.add(key);
+          newCards.push(card);
         }
-        done++;
-        chrome.runtime.sendMessage({ type: 'FILTER_PROGRESS', done, total });
-        return { ok: false };
-      }
-    });
+      });
 
-    const results = await processWithConcurrency(tasks, concurrency || 4);
-    const pass = results.filter(r => r.ok && r.score >= (threshold || 60)).length;
-    const fail = results.filter(r => r.ok && r.score < (threshold || 60)).length;
-    chrome.runtime.sendMessage({ type: 'FILTER_DONE', total, pass, fail });
+      if (newCards.length > 0) {
+        total = Math.max(total, done + newCards.length);
+        chrome.runtime.sendMessage({ type: 'FILTER_PROGRESS', done, total });
+        newCards.forEach(card => injectBadge(card));
+
+        const tasks = newCards.map((card, i) => async () => {
+          const info = parseCard(card);
+          log(`[轮次${round + 1}] [${i + 1}/${newCards.length}] ${info.name} | ${info.experience} | ${info.education}`);
+
+          try {
+            const result = await callDeepSeek({ apiKey, model, jobTitle, jobDesc, candidateInfo: info, weights });
+            updateBadge(card, result, displayMode, threshold);
+            done++;
+            if (result.score >= (threshold || 60)) pass++;
+            else fail++;
+            chrome.runtime.sendMessage({ type: 'FILTER_PROGRESS', done, total });
+            return { ok: true };
+          } catch (err) {
+            log(`[轮次${round + 1}] 失败:`, err.message);
+            const badge = badgeMap.get(card);
+            if (badge) {
+              badge.dataset.state = 'error';
+              badge.innerHTML = `<span class="badge-label" title="${err.message}">⚠️ 失败</span>`;
+            }
+            done++;
+            chrome.runtime.sendMessage({ type: 'FILTER_PROGRESS', done, total });
+            return { ok: false };
+          }
+        });
+
+        await processWithConcurrency(tasks, concurrency || 4);
+      } else {
+        log(`[轮次${round + 1}] 无新增候选人`);
+      }
+
+      if (round === scrollRounds) break;
+
+      const before = findCandidateCards().length;
+      log(`自动滚动加载第 ${round + 1}/${scrollRounds} 次，滚动前候选人: ${before}`);
+      const loaded = await autoScrollAndLoadMore(before);
+      const after = findCandidateCards().length;
+      total = Math.max(total, after, done);
+      log(`自动滚动完成，第 ${round + 1}/${scrollRounds} 次，候选人: ${before} -> ${after}${loaded ? '' : '（未检测到新增）'}`);
+
+      if (!loaded && after <= before) {
+        log('未加载到更多候选人，提前结束后续滚动轮次');
+        break;
+      }
+    }
+
+    chrome.runtime.sendMessage({ type: 'FILTER_DONE', total: done, pass, fail });
 
   } catch (err) {
     chrome.runtime.sendMessage({ type: 'FILTER_ERROR', error: err.message });
@@ -409,7 +534,7 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   return true;
 });
 
-log('v1.4 已加载，路径:', location.pathname);
+log('v1.5 已加载，路径:', location.pathname);
 
 // ===================== Frame 自检：只有包含候选人的 frame 才工作 =====================
 // 在任意 frame 加载后，先打印 frame 信息方便排查

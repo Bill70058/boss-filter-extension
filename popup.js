@@ -153,8 +153,8 @@ function handleMessage(msg) {
     $('stat-total').textContent = msg.total;
   }
   if (msg.type === 'FILTER_DONE') {
-    const { pass, fail, total } = msg;
-    setStatus(`✅ 完成！共分析 ${total} 人`, 'success');
+    const { pass, fail, total, skipped = 0 } = msg;
+    setStatus(`✅ 完成！新分析 ${total} 人，跳过已评分 ${skipped} 人`, 'success');
     $('stat-total').textContent = total;
     $('stat-pass').textContent = pass;
     $('stat-fail').textContent = fail;

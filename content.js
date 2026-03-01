@@ -367,6 +367,15 @@ function clearAllBadges() {
   badgeMap.clear();
 }
 
+function getBadgeState(card) {
+  return card.querySelector('.ai-filter-badge')?.dataset?.state || '';
+}
+
+function isCardAlreadyScored(card) {
+  const state = getBadgeState(card);
+  return state === 'high' || state === 'mid' || state === 'low';
+}
+
 // ===================== DeepSeek API =====================
 async function callDeepSeek({ apiKey, model, jobTitle, jobDesc, candidateInfo, weights }) {
   const weightStr = (weights || []).map(w => `${w.name}（${w.weight}%）`).join('、') || '综合评估';
@@ -432,8 +441,6 @@ async function startFilter(payload) {
   isRunning = true;
 
   try {
-    clearAllBadges();
-
     try {
       await waitForCards(15000);
     } catch (e) {
@@ -448,11 +455,26 @@ async function startFilter(payload) {
     let done = 0;
     let pass = 0;
     let fail = 0;
+    let skipped = 0;
     let total = findCandidateCards().length;
     const processed = new Set();
 
+    // 保留已评分结果：只重试未评分/失败中的卡片
+    findCandidateCards().forEach((card) => {
+      const key = getCardUniqueKey(card);
+      if (isCardAlreadyScored(card)) {
+        processed.add(key);
+        skipped++;
+        return;
+      }
+      // 清理非完成态徽章，避免重复展示“分析中/失败”
+      card.querySelector('.ai-filter-badge')?.remove();
+      card.classList.remove('ai-hovering');
+      badgeMap.delete(card);
+    });
+
     chrome.runtime.sendMessage({ type: 'FILTER_PROGRESS', done: 0, total });
-    log(`开始自动筛选，自动滚动次数: ${scrollRounds}`);
+    log(`开始自动筛选，自动滚动次数: ${scrollRounds}，跳过已评分: ${skipped}`);
 
     for (let round = 0; round <= scrollRounds; round++) {
       const allCards = findCandidateCards();
@@ -460,10 +482,14 @@ async function startFilter(payload) {
 
       allCards.forEach(card => {
         const key = getCardUniqueKey(card);
-        if (!processed.has(key)) {
+        if (processed.has(key)) return;
+        if (isCardAlreadyScored(card)) {
           processed.add(key);
-          newCards.push(card);
+          skipped++;
+          return;
         }
+        processed.add(key);
+        newCards.push(card);
       });
 
       if (newCards.length > 0) {
@@ -516,7 +542,7 @@ async function startFilter(payload) {
       }
     }
 
-    chrome.runtime.sendMessage({ type: 'FILTER_DONE', total: done, pass, fail });
+    chrome.runtime.sendMessage({ type: 'FILTER_DONE', total: done, pass, fail, skipped });
 
   } catch (err) {
     chrome.runtime.sendMessage({ type: 'FILTER_ERROR', error: err.message });

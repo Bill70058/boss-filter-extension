@@ -3,7 +3,10 @@
 
 chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   // 将 content.js 的进度/结果消息转发给 popup
-  if (['FILTER_PROGRESS', 'FILTER_DONE', 'FILTER_ERROR'].includes(msg.type)) {
+  if ([
+    'FILTER_PROGRESS', 'FILTER_DONE', 'FILTER_ERROR',
+    'AUTO_REPLY_PROGRESS', 'AUTO_REPLY_DONE', 'AUTO_REPLY_ERROR'
+  ].includes(msg.type)) {
     // 广播给所有扩展页面（popup）
     chrome.runtime.sendMessage(msg).catch(() => {
       // popup 可能已关闭，忽略错误

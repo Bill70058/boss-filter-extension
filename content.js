@@ -3,6 +3,20 @@
 
 const log = (...a) => console.log('[AI筛选]', ...a);
 
+function getStorage(keys) {
+  return new Promise(resolve => chrome.storage.local.get(keys, resolve));
+}
+
+function setStorage(obj) {
+  return new Promise(resolve => chrome.storage.local.set(obj, resolve));
+}
+
+function isChatPage() {
+  // Only treat the dedicated chat index as chat page to avoid false positives
+  // on candidate scoring pages that may also contain input elements.
+  return location.pathname === '/web/chat/index';
+}
+
 function makeCardHelpers(card) {
   // 辅助函数：取第一个匹配元素的文本
   const t = (sel) => {
@@ -464,6 +478,10 @@ let isRunning = false;
 
 async function startFilter(payload) {
   if (isRunning) return;
+  if (isChatPage()) {
+    chrome.runtime.sendMessage({ type: 'FILTER_ERROR', error: '当前在聊天页，请使用自动回复功能' });
+    return;
+  }
   isRunning = true;
 
   try {
@@ -577,6 +595,278 @@ async function startFilter(payload) {
   }
 }
 
+// ===================== 自动回复（未读消息）=====================
+let autoReplyRunning = false;
+let autoReplyTimer = null;
+
+function parseKeywords(str) {
+  return (str || '')
+    .split(/[,\n，、;；]/)
+    .map(s => s.trim())
+    .filter(Boolean);
+}
+
+function normalizeText(text) {
+  return (text || '').toLowerCase();
+}
+
+function extractJobTokens(job) {
+  const raw = (job || '').trim();
+  if (!raw) return [];
+  const parts = raw.split(/[\s/\\\-、，,|]+/).map(s => s.trim()).filter(Boolean);
+  const tokens = new Set([raw, ...parts]);
+  return Array.from(tokens);
+}
+
+function filterPresetsByJobHint(message, presets) {
+  const msg = normalizeText(message);
+  const withHit = presets.filter(p => {
+    const tokens = extractJobTokens(p.job);
+    if (!tokens.length) return false;
+    return tokens.some(t => msg.includes(normalizeText(t)));
+  });
+  return withHit.length ? withHit : presets;
+}
+
+function filterPresetsByQuestionHint(message, presets) {
+  const msg = normalizeText(message);
+  const withHit = presets.filter(p => {
+    const keys = parseKeywords(p.keywords || '');
+    if (!keys.length) return false;
+    return keys.some(k => msg.includes(normalizeText(k)));
+  });
+  if (withHit.length) return withHit;
+
+  // 如果没有关键词命中，只有在“待遇/时间类问题”时才保留无关键词预设
+  const isBenefitsQuestion = /(上班时间|待遇|薪资|工资|吃住|包吃|包住|食宿|社保|公积金|休息|休假|加班|排班|月休|倒班)/i
+    .test(message || '');
+  if (!isBenefitsQuestion) return [];
+  return presets.filter(p => !parseKeywords(p.keywords || '').length);
+}
+
+function getUnreadChatItems() {
+  const items = Array.from(document.querySelectorAll('.geek-item-wrap .geek-item, .geek-item'));
+  return items.filter(item => {
+    const badge = item.querySelector('.badge-count');
+    if (!badge) return false;
+    const count = parseInt(badge.innerText.trim(), 10);
+    return Number.isNaN(count) ? true : count > 0;
+  });
+}
+
+function getChatItemMeta(item) {
+  return {
+    id: item.getAttribute('data-id') || item.id || item.getAttribute('d-c') || '',
+    name: item.querySelector('.geek-name')?.innerText.trim() || '',
+    job: item.querySelector('.source-job')?.innerText.trim() || '',
+    preview: item.querySelector('.push-text')?.innerText.trim() || ''
+  };
+}
+
+async function callDeepSeekMatch({ apiKey, model, message, presets }) {
+  const presetBriefs = presets.map(p => ({
+    id: p.id,
+    job: p.job || '',
+    keywords: parseKeywords(p.keywords || '').slice(0, 10),
+    reply: (p.reply || '').slice(0, 80)
+  }));
+
+  const prompt = `你是招聘HR助手，请判断候选人消息是否触发任意预设回复。
+规则：
+1) 如果候选人明确提到岗位名称/岗位关键词，只能匹配岗位一致或高度相关的预设。
+2) 如果候选人没有提到岗位，但提到待遇问题（薪资/上班时间/吃住/社保等），可匹配通用或最相关岗位预设。
+3) 如果预设包含关键词（keywords），必须与候选人问题意图一致，且至少命中一个关键词；否则返回 null。
+4) 如果预设没有关键词，仅当候选人问题是待遇/时间类（薪资/上班时间/吃住/社保/休息/加班等）才可匹配；否则返回 null。
+5) 不确定时返回 null，宁可不匹配。
+
+候选人消息：
+${message}
+
+预设列表（id/岗位/回复摘要）：
+${JSON.stringify(presetBriefs, null, 2)}
+
+如果触发，返回最合适的预设id；如果不触发，返回null。
+仅输出JSON，不要有多余文字。
+{"match":"preset_id_or_null"}`;
+
+  const resp = await fetch('https://api.deepseek.com/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+    body: JSON.stringify({
+      model: model || 'deepseek-chat',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.2,
+      max_tokens: 120
+    })
+  });
+
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({}));
+    throw new Error(err.error?.message || `API HTTP ${resp.status}`);
+  }
+  const data = await resp.json();
+  const text = data.choices?.[0]?.message?.content || '';
+  const match = text.match(/\{[\s\S]*?\}/);
+  if (!match) return null;
+  const obj = JSON.parse(match[0]);
+  const id = obj.match;
+  return id && id !== 'null' ? id : null;
+}
+
+function matchPresetByKeyword(message, presets) {
+  const msg = normalizeText(message);
+  for (const p of presets) {
+    const keys = parseKeywords(p.keywords);
+    if (!keys.length) continue;
+    if (keys.some(k => msg.includes(normalizeText(k)))) return p.id;
+  }
+  return null;
+}
+
+async function waitForMessageInput(timeoutMs = 8000) {
+  const deadline = Date.now() + timeoutMs;
+  const isVisible = (el) => !!(el && (el.offsetParent || el.getClientRects().length));
+
+  while (Date.now() < deadline) {
+    const textarea = Array.from(document.querySelectorAll('textarea')).find(isVisible);
+    if (textarea) return { type: 'textarea', el: textarea };
+    const editable = Array.from(document.querySelectorAll('div[contenteditable="true"]')).find(isVisible);
+    if (editable) return { type: 'editable', el: editable };
+    await sleep(300);
+  }
+  return null;
+}
+
+function findSendButton() {
+  const isVisible = (el) => !!(el && (el.offsetParent || el.getClientRects().length));
+  const candidates = Array.from(document.querySelectorAll('button, a, div[role="button"]'))
+    .filter(isVisible);
+  return candidates.find(el => /发送|send/i.test(el.innerText.trim()));
+}
+
+function fillMessageInput(input, text) {
+  if (input.type === 'textarea') {
+    input.el.focus();
+    input.el.value = text;
+    input.el.dispatchEvent(new Event('input', { bubbles: true }));
+  } else {
+    input.el.focus();
+    input.el.innerText = text;
+    input.el.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+}
+
+async function sendReply(text) {
+  const input = await waitForMessageInput();
+  if (!input) throw new Error('未找到消息输入框');
+  fillMessageInput(input, text);
+  await sleep(200);
+  const btn = findSendButton();
+  if (!btn) throw new Error('未找到发送按钮');
+  btn.click();
+  await sleep(400);
+}
+
+async function scanAndAutoReply(payload) {
+  if (autoReplyRunning) return;
+  if (!isChatPage()) {
+    chrome.runtime.sendMessage({ type: 'AUTO_REPLY_ERROR', error: '仅在聊天页可使用自动回复' });
+    return;
+  }
+  autoReplyRunning = true;
+
+  try {
+    const { apiKey, model, mode = 'ai', presets = [] } = payload || {};
+    if (!presets.length) return;
+    const normalizedPresets = presets.map((p, i) => ({
+      id: p.id || `p_${i}`,
+      job: p.job || '',
+      keywords: p.keywords || '',
+      reply: p.reply || ''
+    }));
+
+    const { autoReplyState = {} } = await getStorage(['autoReplyState']);
+    const unreadItems = getUnreadChatItems();
+    let done = 0;
+    let replied = 0;
+    let skipped = 0;
+
+    chrome.runtime.sendMessage({ type: 'AUTO_REPLY_PROGRESS', done, total: unreadItems.length });
+
+    for (const item of unreadItems) {
+      const meta = getChatItemMeta(item);
+      done++;
+      if (!meta.preview) {
+        skipped++;
+        chrome.runtime.sendMessage({ type: 'AUTO_REPLY_PROGRESS', done, total: unreadItems.length });
+        continue;
+      }
+      if (meta.id && autoReplyState[meta.id] === meta.preview) {
+        skipped++;
+        chrome.runtime.sendMessage({ type: 'AUTO_REPLY_PROGRESS', done, total: unreadItems.length });
+        continue;
+      }
+
+      let matchedId = null;
+    if (mode === 'keyword') {
+        let filtered = filterPresetsByJobHint(meta.preview, normalizedPresets);
+        filtered = filterPresetsByQuestionHint(meta.preview, filtered);
+        matchedId = matchPresetByKeyword(meta.preview, filtered);
+      } else {
+        if (!apiKey) {
+          skipped++;
+          chrome.runtime.sendMessage({ type: 'AUTO_REPLY_PROGRESS', done, total: unreadItems.length });
+          continue;
+        }
+        let filtered = filterPresetsByJobHint(meta.preview, normalizedPresets);
+        filtered = filterPresetsByQuestionHint(meta.preview, filtered);
+        matchedId = await callDeepSeekMatch({ apiKey, model, message: meta.preview, presets: filtered });
+      }
+
+      const preset = normalizedPresets.find(p => p.id === matchedId);
+      if (!preset || !preset.reply) {
+        skipped++;
+        chrome.runtime.sendMessage({ type: 'AUTO_REPLY_PROGRESS', done, total: unreadItems.length });
+        continue;
+      }
+
+      item.scrollIntoView({ block: 'center' });
+      item.click();
+      await sleep(700);
+      await sendReply(preset.reply);
+      replied++;
+      if (meta.id) autoReplyState[meta.id] = meta.preview;
+      chrome.runtime.sendMessage({ type: 'AUTO_REPLY_PROGRESS', done, total: unreadItems.length });
+    }
+
+    await setStorage({ autoReplyState });
+    chrome.runtime.sendMessage({ type: 'AUTO_REPLY_DONE', replied, skipped });
+  } catch (err) {
+    chrome.runtime.sendMessage({ type: 'AUTO_REPLY_ERROR', error: err.message });
+  } finally {
+    autoReplyRunning = false;
+  }
+}
+
+async function setupAutoReplyWatcher() {
+  if (window.top !== window.self) return;
+  if (!isChatPage()) return;
+  const data = await getStorage(['autoReplyEnabled', 'autoReplyInterval', 'autoReplyMode', 'autoReplyPresets', 'apiKey', 'model']);
+  if (!data.autoReplyEnabled) return;
+  const intervalSec = Math.max(15, parseInt(data.autoReplyInterval, 10) || 30);
+  const payload = {
+    apiKey: data.apiKey,
+    model: data.model || 'deepseek-chat',
+    mode: data.autoReplyMode || 'ai',
+    presets: Array.isArray(data.autoReplyPresets) ? data.autoReplyPresets : []
+  };
+  if (autoReplyTimer) clearInterval(autoReplyTimer);
+  autoReplyTimer = setInterval(() => {
+    scanAndAutoReply(payload);
+  }, intervalSec * 1000);
+  scanAndAutoReply(payload);
+}
+
 function initFloatingPanel() {
   if (window.top !== window.self) return;
   if (document.getElementById('ai-filter-fab')) return;
@@ -626,6 +916,10 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     sendResponse({ ok: true });
     startFilter(msg.payload);
   }
+  if (msg.type === 'START_AUTO_REPLY') {
+    sendResponse({ ok: true });
+    scanAndAutoReply(msg.payload);
+  }
   return true;
 });
 
@@ -638,3 +932,4 @@ log(
 );
 
 initFloatingPanel();
+setupAutoReplyWatcher();

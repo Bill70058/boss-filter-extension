@@ -290,6 +290,31 @@
       font-size: 12px;
       padding: 20px 0;
     }
+
+    /* 自动回复预设 */
+    .preset-item {
+      background: #fff;
+      border: 1px solid #e8eaed;
+      border-radius: 8px;
+      padding: 10px;
+      margin-bottom: 10px;
+    }
+    .preset-row {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 6px;
+    }
+    .preset-row input[type="text"] { flex: 1; }
+    .preset-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 6px;
+    }
+    .btn-danger {
+      background: #ffe5e5;
+      color: #c53030;
+    }
+    .btn-danger:hover { background: #ffd2d2; }
   </style>
 </head>
 <body>
@@ -424,6 +449,43 @@
         <option value="10" selected>最近10条</option>
         <option value="20">最近20条</option>
       </select>
+    </div>
+
+    <hr class="divider">
+
+    <div class="section">
+      <div class="label">自动回复 <span class="tip">（未读消息命中预设才会进入对话回复）</span></div>
+      <div class="preset-row">
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:#555">
+          <input type="checkbox" id="auto-reply-enabled" />
+          开启自动回复
+        </label>
+        <select id="auto-reply-interval" style="width:120px">
+          <option value="15">15秒</option>
+          <option value="30" selected>30秒</option>
+          <option value="60">60秒</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="label">匹配方式</div>
+      <select id="auto-reply-mode">
+        <option value="ai" selected>AI理解匹配（推荐）</option>
+        <option value="keyword">关键词匹配</option>
+      </select>
+    </div>
+
+    <div class="section">
+      <div class="label">预设回复列表</div>
+      <div id="preset-list"></div>
+      <div class="preset-actions">
+        <button class="btn-sm btn-secondary" id="btn-add-preset">+ 新增预设</button>
+        <button class="btn-sm btn-secondary" id="btn-run-auto-reply">立即扫描未读并回复</button>
+      </div>
+      <div class="tip" style="margin-top:6px;font-size:11px;color:#999">
+        关键词匹配：用逗号分隔，例如：薪资,上班时间,吃住
+      </div>
     </div>
 
     <button class="btn-sm btn-secondary" id="btn-save-settings" style="width:100%;padding:10px;margin-top:4px">保存设置</button>

@@ -81,6 +81,69 @@ function setupScrollTip() {
 // ===================== 权重管理 =====================
 let currentWeights = [...DEFAULT_WEIGHTS];
 
+// ===================== 自动回复预设 =====================
+let autoReplyPresets = [];
+
+function normalizePreset(raw) {
+  return {
+    id: raw.id || ('p_' + Date.now() + '_' + Math.random().toString(16).slice(2)),
+    job: (raw.job || '').trim(),
+    keywords: (raw.keywords || '').trim(),
+    reply: (raw.reply || '').trim()
+  };
+}
+
+function renderPresets() {
+  const list = $('preset-list');
+  list.innerHTML = '';
+  if (!autoReplyPresets.length) {
+    list.innerHTML = '<div class="empty-hint">暂无预设，点击“新增预设”开始</div>';
+    return;
+  }
+
+  autoReplyPresets.forEach((p) => {
+    const item = document.createElement('div');
+    item.className = 'preset-item';
+    item.dataset.id = p.id;
+    item.innerHTML = `
+      <div class="preset-row">
+        <input type="text" class="preset-job" placeholder="岗位名称（例：跨境电商仓库拣货）" value="${p.job || ''}" />
+      </div>
+      <div class="preset-row">
+        <input type="text" class="preset-keywords" placeholder="触发关键词（逗号分隔，可为空）" value="${p.keywords || ''}" />
+      </div>
+      <div class="preset-row">
+        <textarea class="preset-reply" placeholder="预设回复内容">${p.reply || ''}</textarea>
+      </div>
+      <div class="preset-actions">
+        <button class="btn-sm btn-danger btn-remove-preset">删除</button>
+      </div>
+    `;
+    item.querySelector('.btn-remove-preset').addEventListener('click', () => {
+      syncPresetsFromUI();
+      autoReplyPresets = autoReplyPresets.filter(x => x.id !== p.id);
+      renderPresets();
+    });
+    list.appendChild(item);
+  });
+}
+
+function collectPresetsFromUI() {
+  const items = Array.from(document.querySelectorAll('.preset-item'));
+  const presets = items.map(item => ({
+    id: item.dataset.id,
+    job: item.querySelector('.preset-job')?.value || '',
+    keywords: item.querySelector('.preset-keywords')?.value || '',
+    reply: item.querySelector('.preset-reply')?.value || ''
+  })).map(normalizePreset).filter(p => p.reply);
+  return presets;
+}
+
+function syncPresetsFromUI() {
+  if (!document.querySelector('.preset-item')) return;
+  autoReplyPresets = collectPresetsFromUI();
+}
+
 function renderWeights() {
   const list = $('weight-list');
   list.innerHTML = '';
@@ -155,7 +218,8 @@ async function saveToHistory(title, desc) {
 async function init() {
   const data = await getStorage([
     'apiKey', 'model', 'concurrency', 'displayMode',
-    'historyMax', 'weights', 'threshold', 'autoScrollTimes'
+    'historyMax', 'weights', 'threshold', 'autoScrollTimes',
+    'autoReplyEnabled', 'autoReplyInterval', 'autoReplyMode', 'autoReplyPresets'
   ]);
 
   if (data.apiKey) $('api-key').value = data.apiKey;
@@ -165,12 +229,17 @@ async function init() {
   if (data.autoScrollTimes !== undefined) $('auto-scroll-times').value = String(data.autoScrollTimes);
   if (data.historyMax) $('history-max').value = data.historyMax;
   if (data.threshold !== undefined) $('threshold').value = data.threshold;
+  if (data.autoReplyEnabled !== undefined) $('auto-reply-enabled').checked = !!data.autoReplyEnabled;
+  if (data.autoReplyInterval) $('auto-reply-interval').value = String(data.autoReplyInterval);
+  if (data.autoReplyMode) $('auto-reply-mode').value = data.autoReplyMode;
 
   if (data.weights && data.weights.length > 0) {
     currentWeights = data.weights;
   }
   renderWeights();
   loadHistory();
+  autoReplyPresets = Array.isArray(data.autoReplyPresets) ? data.autoReplyPresets.map(normalizePreset) : [];
+  renderPresets();
   setupScrollTip();
 
   // 监听来自 content.js 的结果消息
@@ -197,6 +266,15 @@ function handleMessage(msg) {
     setStatus('❌ ' + msg.error, 'error');
     setBtnState(false);
     setTimeout(updateScrollTip, 0);
+  }
+  if (msg.type === 'AUTO_REPLY_PROGRESS') {
+    setStatus(`自动回复中：${msg.done}/${msg.total} ...`, 'info');
+  }
+  if (msg.type === 'AUTO_REPLY_DONE') {
+    setStatus(`✅ 自动回复完成：已回复 ${msg.replied} 条，跳过 ${msg.skipped} 条`, 'success');
+  }
+  if (msg.type === 'AUTO_REPLY_ERROR') {
+    setStatus('❌ 自动回复失败：' + msg.error, 'error');
   }
 }
 
@@ -236,6 +314,8 @@ $('btn-toggle-key').addEventListener('click', function() {
 
 // 保存设置
 $('btn-save-settings').addEventListener('click', async () => {
+  const presets = collectPresetsFromUI();
+  autoReplyPresets = presets;
   await setStorage({
     apiKey: $('api-key').value.trim(),
     model: $('model-select').value,
@@ -244,7 +324,11 @@ $('btn-save-settings').addEventListener('click', async () => {
     displayMode: $('display-mode').value,
     historyMax: parseInt($('history-max').value),
     weights: currentWeights,
-    threshold: parseInt($('threshold').value)
+    threshold: parseInt($('threshold').value),
+    autoReplyEnabled: $('auto-reply-enabled').checked,
+    autoReplyInterval: parseInt($('auto-reply-interval').value),
+    autoReplyMode: $('auto-reply-mode').value,
+    autoReplyPresets: presets
   });
   setStatus('✅ 设置已保存', 'success');
 });
@@ -269,6 +353,46 @@ $('btn-add-dim').addEventListener('click', () => {
   $('new-dim-name').value = '';
 });
 
+// 新增预设
+$('btn-add-preset').addEventListener('click', () => {
+  syncPresetsFromUI();
+  autoReplyPresets.push(normalizePreset({ job: '', keywords: '', reply: '' }));
+  renderPresets();
+  setTimeout(updateScrollTip, 0);
+});
+
+// 立即执行自动回复
+$('btn-run-auto-reply').addEventListener('click', async () => {
+  const presets = collectPresetsFromUI();
+  if (!presets.length) {
+    setStatus('请先添加至少一条预设回复', 'error');
+    return;
+  }
+  const { apiKey, model = 'deepseek-chat' } = await getStorage(['apiKey', 'model']);
+  const mode = $('auto-reply-mode').value;
+  if (mode === 'ai' && !apiKey) {
+    setStatus('请先在【设置】中填写 API Key', 'error');
+    return;
+  }
+  await setStorage({ autoReplyPresets: presets });
+  setStatus('正在扫描未读消息...', 'info');
+
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  chrome.tabs.sendMessage(tab.id, {
+    type: 'START_AUTO_REPLY',
+    payload: {
+      apiKey,
+      model,
+      mode,
+      presets
+    }
+  }, () => {
+    if (chrome.runtime.lastError) {
+      setStatus('❌ 无法连接页面，请刷新BOSS直聘页面后重试', 'error');
+    }
+  });
+});
+
 // 开始筛选
 function setBtnState(loading) {
   const btn = $('btn-start');
@@ -282,12 +406,41 @@ function setBtnState(loading) {
 }
 
 $('btn-start').addEventListener('click', async () => {
+  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tabUrl = tab?.url || '';
+  const isChat = tabUrl.includes('https://www.zhipin.com/web/chat/index');
+
+  if (isChat) {
+    const presets = collectPresetsFromUI();
+    if (!presets.length) {
+      setStatus('请先在【设置-自动回复】中添加预设回复', 'error');
+      return;
+    }
+    const { apiKey, model = 'deepseek-chat' } = await getStorage(['apiKey', 'model']);
+    const mode = $('auto-reply-mode').value;
+    if (mode === 'ai' && !apiKey) {
+      setStatus('请先在【设置】中填写 API Key', 'error');
+      return;
+    }
+    await setStorage({ autoReplyPresets: presets });
+    setStatus('正在扫描未读消息...', 'info');
+    chrome.tabs.sendMessage(tab.id, {
+      type: 'START_AUTO_REPLY',
+      payload: { apiKey, model, mode, presets }
+    }, () => {
+      if (chrome.runtime.lastError) {
+        setStatus('❌ 无法连接页面，请刷新BOSS直聘页面后重试', 'error');
+      }
+    });
+    return;
+  }
+
   const title = $('job-title').value.trim();
   const desc = $('job-desc').value.trim();
   const threshold = parseInt($('threshold').value) || 60;
 
   if (!title && !desc) {
-    setStatus('请先填写岗位名称或需求描述', 'error');
+    setStatus('请在【筛选】中填写岗位名称或需求描述（与自动回复预设无关）', 'error');
     return;
   }
 
@@ -318,8 +471,6 @@ $('btn-start').addEventListener('click', async () => {
   $('result-stats').style.display = 'none';
 
   // 向 content.js 发送筛选指令
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-
   chrome.tabs.sendMessage(tab.id, {
     type: 'START_FILTER',
     payload: {

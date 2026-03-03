@@ -12,9 +12,11 @@ function setStorage(obj) {
 }
 
 function isChatPage() {
-  // Only treat the dedicated chat index as chat page to avoid false positives
-  // on candidate scoring pages that may also contain input elements.
-  return location.pathname === '/web/chat/index';
+  if (location.pathname.startsWith('/web/chat')) return true;
+  const hasChatList = !!document.querySelector('.geek-item-wrap .geek-item');
+  const hasInput = !!document.querySelector('textarea, div[contenteditable="true"]');
+  const hasSend = !!findSendButton();
+  return hasChatList && hasInput && hasSend;
 }
 
 function makeCardHelpers(card) {
